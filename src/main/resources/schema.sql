@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS exercise
     title       VARCHAR(200) NOT NULL,
     description TEXT,
     max_points  NUMERIC(5, 2) NOT NULL DEFAULT 20,
-    deadline    DATE         NOT NULL,
+    deadline    TIMESTAMP    NOT NULL,
     created_at  TIMESTAMP    NOT NULL DEFAULT now()
 );
 
