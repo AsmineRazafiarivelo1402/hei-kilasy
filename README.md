@@ -70,6 +70,8 @@ curl -X PUT http://localhost:8080/submissions/5/grade \
   -d '{"points": 15, "feedback": "Bien, mais commente ton code."}'
 ```
 
+When a submission is graded, Kilasy also simulates an SMS notification in the application logs. SMS sending is isolated behind `SmsSender`; a missing or invalid phone number, or a sender failure, does not prevent the grade from being published. No external SMS provider is configured.
+
 View a grade transcript and the export:
 
 ```bash
@@ -83,3 +85,4 @@ curl http://localhost:8080/exports/grades.csv
 - A student can only submit once per exercise.
 - A submission sent after the deadline day is marked as late.
 - Points are entered on the exercise's scale (10, 20, 40…) and converted to a grade out of 20.
+- When a grade is published, the student is notified by email and a simulated SMS is written to the application logs.

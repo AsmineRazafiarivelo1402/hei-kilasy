@@ -28,6 +28,9 @@ public class SubmissionController {
     @Autowired
     private JavaMailSender mailSender;
 
+    @Autowired
+    private SmsNotificationService smsNotificationService;
+
     // POST /exercises/{id}/submissions : student submits an exercise
     @PostMapping("/exercises/{id}/submissions")
     public ResponseEntity<?> submit(@PathVariable long id, @RequestBody Map<String, Object> body) {
@@ -166,6 +169,8 @@ public class SubmissionController {
         message.setText(text);
         mailSender.send(message);
         System.out.println("Email de note envoyé à " + row.get("email"));
+        smsNotificationService.notifyGrade(
+                (String) row.get("phone"), title, calculated.finalGrade());
 
         Map<String, Object> result = new HashMap<>();
         result.put("id", id);

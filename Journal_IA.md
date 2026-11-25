@@ -51,3 +51,35 @@ Fichiers modifiés pour la fonctionnalité :
 `src/main/java/hei/school/SubmissionController.java` contenait déjà des modifications locales avant cette intervention ; elles ont été conservées.
 
 Validation : `mvn test`, vérification des exemples de pénalité et essai des réponses de consultation, du relevé et du CSV.
+
+_____________________________________________________________________________
+TD Kilasy : Notification par SMS (C2)
+
+### Échange 1 — 21:37 à 21:41
+Demande : choisir une solution pour envoyer un SMS lorsqu’un enseignant publie une note.
+
+Décision : le fournisseur SMS n’étant pas choisi, l’envoi sera simulé par un message écrit dans les logs. Il est déclenché lors de la publication de la note ; aucun SMS réel n’est envoyé.
+
+### Échange 2 — 22:15 à 22:19
+Proposition de l’utilisateur : créer une nouvelle classe contenant les informations du SMS (numéro destinataire et contenu) et prendre en compte les échecs possibles : numéro invalide ou absent et panne du service d’envoi. Une panne ne doit pas empêcher la publication de la note.
+
+Décision : séparer le service d’envoi de la notation afin de pouvoir remplacer le fournisseur simulé plus tard sans modifier le code de notation. L’utilisateur a demandé la mise en œuvre de cette conception.
+
+### Échange 3 — Implémentation et vérification
+Implémentation : ajouter `SmsMessage`, `SmsSender`, `SimulatedSmsSender` et `SmsNotificationService`. Appeler ce dernier après l’enregistrement de la note et conserver l’envoi d’email existant. Les numéros absents ou invalides et les exceptions du composant SMS sont journalisés sans annuler la publication de la note.
+
+Vérification : tests unitaires du format du message, des numéros absents ou invalides, et d’une panne simulée. Le test du contrôleur vérifie que l’UPDATE et la réponse contenant la note finale réussissent quand le composant SMS lève une exception. `mvn test` réussit : 4 tests, 0 échec.
+
+## Bilan
+
+Fichiers modifiés pour la fonctionnalité :
+
+- `src/main/java/hei/school/SmsMessage.java` — contient le numéro destinataire et le texte du SMS.
+- `src/main/java/hei/school/SmsSender.java` — définit le contrat du composant d’envoi remplaçable.
+- `src/main/java/hei/school/SimulatedSmsSender.java` — simule l’envoi en écrivant le message dans les logs.
+- `src/main/java/hei/school/SmsNotificationService.java` — prépare le message, vérifie le numéro et isole les erreurs d’envoi.
+- `src/main/java/hei/school/SubmissionController.java` — déclenche la notification SMS après l’enregistrement de la note.
+- `src/test/java/hei/school/SmsNotificationServiceTest.java` — teste le message, les numéros invalides/absents et la panne simulée.
+- `src/test/java/hei/school/SubmissionControllerSmsFailureTest.java` — vérifie que la note reste publiée en cas de panne SMS.
+- `pom.xml` — ajoute les dépendances nécessaires aux tests.
+- `README.md` — documente la simulation SMS.
