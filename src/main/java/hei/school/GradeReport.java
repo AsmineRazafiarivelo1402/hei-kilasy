@@ -3,6 +3,7 @@ package hei.school;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -30,22 +31,26 @@ public class GradeReport {
         Map<String, Object> student = students.get(0);
 
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT e.title, e.deadline, e.max_points, s.id AS submission_id, s.submitted_at, s.raw_points, s.feedback "
+                "SELECT e.title, e.deadline, e.duration_minutes, e.max_points, s.id AS submission_id, "
+                        + "s.submitted_at, s.raw_points, s.feedback, es.started_at "
                         + "FROM exercise e LEFT JOIN submission s ON s.exercise_id = e.id AND s.student_id = ? "
+                        + "LEFT JOIN exercise_start es ON es.exercise_id = e.id AND es.student_id = ? "
                         + "ORDER BY e.deadline",
-                studentId);
+                studentId, studentId);
 
         List<Map<String, Object>> lines = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
         int graded = 0;
         for (Map<String, Object> row : rows) {
             Map<String, Object> line = new LinkedHashMap<>();
-            LocalDateTime deadline = ((Timestamp) row.get("deadline")).toLocalDateTime();
+            Timestamp deadlineTimestamp = (Timestamp) row.get("deadline");
+            LocalDateTime deadline = deadlineTimestamp == null ? null : deadlineTimestamp.toLocalDateTime();
             line.put("exercise", row.get("title"));
             line.put("deadline", deadline);
+            line.put("durationMinutes", row.get("duration_minutes"));
 
             if (row.get("submission_id") == null) {
-                if (deadline.isBefore(LocalDateTime.now())) {
+                if (deadline != null && deadline.isBefore(LocalDateTime.now())) {
                     line.put("status", "NON RENDU");
                 } else {
                     line.put("status", "À RENDRE");
@@ -54,7 +59,11 @@ public class GradeReport {
             } else {
                 LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
                 line.put("submittedAt", submittedAt);
-                line.put("late", submittedAt.isAfter(deadline));
+                line.put("late", deadline != null && submittedAt.isAfter(deadline));
+                if (row.get("duration_minutes") != null && row.get("started_at") != null) {
+                    LocalDateTime startedAt = ((Timestamp) row.get("started_at")).toLocalDateTime();
+                    line.put("timeUsedSeconds", Duration.between(startedAt, submittedAt).getSeconds());
+                }
                 if (row.get("raw_points") == null) {
                     line.put("status", "EN ATTENTE DE CORRECTION");
                     line.put("grade", null);

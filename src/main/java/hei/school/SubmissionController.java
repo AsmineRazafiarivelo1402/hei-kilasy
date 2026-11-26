@@ -2,12 +2,14 @@ package hei.school;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mail.SimpleMailMessage;
@@ -30,6 +32,61 @@ public class SubmissionController {
 
     @Autowired
     private SmsNotificationService smsNotificationService;
+
+    @PostMapping("/exercises/{id}/students/{studentId}/start")
+    public ResponseEntity<?> startExercise(@PathVariable long id, @PathVariable long studentId) {
+        List<Map<String, Object>> exercises = jdbcTemplate.queryForList(
+                "SELECT deadline, duration_minutes FROM exercise WHERE id = ?", id);
+        if (exercises.isEmpty()) {
+            return ResponseEntity.status(404).body(Map.of("error", "Exercice introuvable"));
+        }
+        List<Map<String, Object>> students = jdbcTemplate.queryForList(
+                "SELECT id FROM student WHERE id = ?", studentId);
+        if (students.isEmpty()) {
+            return ResponseEntity.status(404).body(Map.of("error", "Étudiant introuvable"));
+        }
+
+        Map<String, Object> exercise = exercises.get(0);
+        Timestamp deadlineTimestamp = (Timestamp) exercise.get("deadline");
+        LocalDateTime deadline = deadlineTimestamp == null ? null : deadlineTimestamp.toLocalDateTime();
+        if (exercise.get("duration_minutes") == null) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("exerciseId", id);
+            result.put("studentId", studentId);
+            result.put("deadline", deadline);
+            result.put("durationMinutes", null);
+            result.put("message", "Cet exercice n'est pas minuté; aucune durée à démarrer");
+            return ResponseEntity.ok(result);
+        }
+        int durationMinutes = ((Number) exercise.get("duration_minutes")).intValue();
+//
+//        Integer alreadySubmitted = jdbcTemplate.queryForObject(
+//                "SELECT count(*) FROM submission WHERE exercise_id = ? AND student_id = ?",
+//                Integer.class, id, studentId);
+//        if (alreadySubmitted != null && alreadySubmitted > 0) {
+//            return ResponseEntity.status(409).body(Map.of("error", "Cet étudiant a déjà soumis cet exercice"));
+//        }
+
+        int inserted = jdbcTemplate.update(
+                "INSERT INTO exercise_start (exercise_id, student_id, started_at) "
+                        + "VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT (exercise_id, student_id) DO NOTHING",
+                id, studentId);
+        Timestamp startedAtTimestamp = jdbcTemplate.queryForObject(
+                "SELECT started_at FROM exercise_start WHERE exercise_id = ? AND student_id = ?",
+                Timestamp.class, id, studentId);
+        LocalDateTime startTime = startedAtTimestamp.toLocalDateTime();
+        LocalDateTime expiresAt = startTime.plusMinutes(durationMinutes);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("exerciseId", id);
+        result.put("studentId", studentId);
+        result.put("deadline", deadline);
+        result.put("durationMinutes", durationMinutes);
+        result.put("startedAt", startTime);
+        result.put("expiresAt", expiresAt);
+        result.put("message", inserted == 1 ? "Décompte démarré" : "Décompte déjà démarré");
+        return ResponseEntity.status(inserted == 1 ? 201 : 200).body(result);
+    }
 
     // POST /exercises/{id}/submissions : student submits an exercise
     @PostMapping("/exercises/{id}/submissions")
@@ -61,9 +118,31 @@ public class SubmissionController {
             return ResponseEntity.status(409).body(Map.of("error", "Cet étudiant a déjà soumis cet exercice"));
         }
 
-        LocalDateTime deadline = ((Timestamp) exercises.get(0).get("deadline")).toLocalDateTime();
+        Map<String, Object> exercise = exercises.get(0);
+        Timestamp deadlineTimestamp = (Timestamp) exercise.get("deadline");
+        LocalDateTime deadline = deadlineTimestamp == null ? null : deadlineTimestamp.toLocalDateTime();
         LocalDateTime now = LocalDateTime.now();
-        boolean late = now.isAfter(deadline);
+        boolean late = deadline != null && now.isAfter(deadline);
+        Long elapsedSeconds = null;
+        if (exercise.get("duration_minutes") != null) {
+            List<Map<String, Object>> starts = jdbcTemplate.queryForList(
+                    "SELECT started_at FROM exercise_start WHERE exercise_id = ? AND student_id = ?",
+                    id, studentId);
+            if (starts.isEmpty()) {
+                return ResponseEntity.status(409)
+                        .body(Map.of("error", "L'étudiant doit démarrer l'exercice avant de le soumettre"));
+            }
+
+            LocalDateTime startedAt = ((Timestamp) starts.get(0).get("started_at")).toLocalDateTime();
+            Duration elapsed = Duration.between(startedAt, now);
+            LocalDateTime expiresAt = startedAt.plusMinutes(
+                    ((Number) exercise.get("duration_minutes")).longValue());
+            if (!now.isBefore(expiresAt)) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                        .body(Map.of("error", "La durée de l'exercice est dépassée"));
+            }
+            elapsedSeconds = elapsed.getSeconds();
+        }
 
         jdbcTemplate.update(
                 "INSERT INTO submission (exercise_id, student_id, content, repo_url, submitted_at) VALUES (?, ?, ?, ?, ?)",
@@ -74,6 +153,9 @@ public class SubmissionController {
         result.put("id", submissionId);
         result.put("submittedAt", now);
         result.put("late", late);
+        if (elapsedSeconds != null) {
+            result.put("elapsedSeconds", elapsedSeconds);
+        }
         result.put("message", late ? "Soumission enregistrée, mais en retard" : "Soumission enregistrée");
         return ResponseEntity.status(201).body(result);
     }
@@ -87,7 +169,8 @@ public class SubmissionController {
             return ResponseEntity.status(404).body(Map.of("error", "Soumission introuvable"));
         }
         Map<String, Object> row = rows.get(0);
-        LocalDateTime deadline = ((Timestamp) row.get("deadline")).toLocalDateTime();
+        Timestamp deadlineTimestamp = (Timestamp) row.get("deadline");
+        LocalDateTime deadline = deadlineTimestamp == null ? null : deadlineTimestamp.toLocalDateTime();
         LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
 
         Map<String, Object> result = new HashMap<>();
@@ -97,7 +180,7 @@ public class SubmissionController {
         result.put("content", row.get("content"));
         result.put("repoUrl", row.get("repo_url"));
         result.put("submittedAt", submittedAt);
-        result.put("late", submittedAt.isAfter(deadline));
+        result.put("late", deadline != null && submittedAt.isAfter(deadline));
         if (row.get("raw_points") != null) {
             double raw = ((BigDecimal) row.get("raw_points")).doubleValue();
             BigDecimal max = (BigDecimal) row.get("max_points");
@@ -142,11 +225,12 @@ public class SubmissionController {
         jdbcTemplate.update("UPDATE submission SET raw_points = ?, feedback = ?, graded_at = now() WHERE id = ?",
                 points, feedback, id);
 
-        LocalDateTime deadline = ((Timestamp) row.get("deadline")).toLocalDateTime();
+        Timestamp deadlineTimestamp = (Timestamp) row.get("deadline");
+        LocalDateTime deadline = deadlineTimestamp == null ? null : deadlineTimestamp.toLocalDateTime();
         LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
         GradeCalculator.GradeResult calculated = GradeCalculator.calculate(
                 rawPoints, (BigDecimal) row.get("max_points"), deadline, submittedAt);
-        boolean late = submittedAt.isAfter(deadline);
+        boolean late = deadline != null && submittedAt.isAfter(deadline);
 
         // notify the student by email
         String fullName = (String) row.get("full_name");

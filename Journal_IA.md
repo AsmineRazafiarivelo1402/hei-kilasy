@@ -83,3 +83,43 @@ Fichiers modifiés pour la fonctionnalité :
 - `src/test/java/hei/school/SubmissionControllerSmsFailureTest.java` — vérifie que la note reste publiée en cas de panne SMS.
 - `pom.xml` — ajoute les dépendances nécessaires aux tests.
 - `README.md` — documente la simulation SMS.
+
+
+_____________________________________________________________________________
+TD Kilasy : Exercices minutés (C3)
+
+### Échange 1 — Conception de la durée
+
+
+Décisions précisées par l'utilisateur :
+
+
+### Échange 1 — Schéma et création d'exercice ( 11h )
+Implémentation : ajouter `duration_minutes` nullable avec une contrainte de valeur positive à la table `exercise`, rendre `deadline` nullable et créer `exercise_start` pour enregistrer le début par couple exercice/étudiant. La durée maximale appartient à l'exercice ; `started_at` appartient au démarrage individuel.
+
+L'endpoint `POST /exercises` accepte une durée entière positive. Il exige au moins une échéance ou une durée, et renvoie la durée dans sa réponse. Les lectures des exercices acceptent une échéance absente.
+
+Erreur de direction corrigée : une première proposition transformait le schéma historique et les données de démonstration en migrations Flyway. L'utilisateur l'a refusée ; Flyway a été retiré et les modifications de schéma ont été placées dans `schema.sql`, conformément à la consigne.
+
+### Échange 2 — Démarrage et validation des soumissions
+Implémentation : `POST /exercises/{id}/students/{studentId}/start` vérifie l'existence de l'exercice et de l'étudiant puis enregistre `started_at` une seule fois. Un nouvel appel ne remet pas le chronomètre à zéro. Pour un exercice sans durée, cet endpoint répond qu'aucun minuteur n'est nécessaire ; la soumission reste possible.
+
+Pour un exercice minuté, la soumission vérifie qu'un démarrage existe, puis compare l'heure de soumission à `started_at + duration_minutes`. Une soumission après l'expiration est refusée en HTTP 422 avec un message explicite ; l'insertion n'est pas exécutée. Le retard par rapport à une échéance éventuelle est évalué séparément, afin de conserver la pénalité C1.
+
+
+
+### Bilan
+Fichiers concernés par C3 :
+
+- `src/main/resources/schema.sql` — échéance facultative, durée en minutes et table des démarrages.
+- `src/main/resources/data.sql` — exercice minuté de démonstration.
+- `src/main/java/hei/school/ExerciseController.java` — création d'exercices avec durée et échéance facultative.
+- `src/main/java/hei/school/SubmissionController.java` — démarrage, contrôle du minuteur, refus HTTP 422 et retard lié à l'échéance.
+- `src/main/java/hei/school/GradeReport.java` — temps utilisé dans le relevé.
+- `src/main/java/hei/school/GradeCalculator.java` — absence d'échéance traitée sans pénalité.
+- `src/main/java/hei/school/CsvExport.java` — absence d'échéance traitée dans l'export.
+- `src/test/java/hei/school/SubmissionDurationTest.java` — tests du démarrage et du dépassement de durée.
+- `src/test/java/hei/school/GradeCalculatorTest.java` — tests de la pénalité de retard.
+- `README.md` — consignes de recréation de la base et exemples pour tester l'exercice minuté.
+
+
